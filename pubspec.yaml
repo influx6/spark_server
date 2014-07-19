@@ -1,0 +1,15 @@
+name: spark_server
+version: 0.0.1
+author: Alexander Ewetumo <trinoxf@gmail.com>
+description: server components for sparkflow
+dependencies:
+  sparkflow: any
+  hub: any
+  spark_utils: any
+dependency_overrides:
+  sparkflow:
+     path: ../sparkflow
+  hub:
+     path: ../hub
+  spark_utils:
+     path: ../spark_utils
