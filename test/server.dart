@@ -15,29 +15,45 @@ void main(){
    n.use('spark.server/protocols/http','tserver');
    n.use('spark.server/protocols/websocks','hm_ws');
    n.use('spark.server/protocols/routeboy','hmr');
-   n.use('spark.utils/utils/applyfn','homereq');
    n.use('spark.server/protocols/routeboy','abr');
+   n.use('spark.utils/utils/applyfn','homereq');
    n.use('spark.utils/utils/applyfn','abreq');
    n.use('spark.utils/utils/consolepackets','pkprint');
+   n.use('spark.utils/utils/consolepackets','pkprint');
 
-   n.ensureBinding('tserver','io:req','hmr','in:reqs');
-   n.ensureBinding('tserver','io:req','abr','in:reqs');
+   n.ensureBinding('tserver','io:req','hmr','io:reqs');
+   n.ensureBinding('tserver','io:req','abr','io:reqs');
    n.ensureBinding('tserver','io:req','pkprint','prt:in');
-   /*n.ensureBinding('pkprint','prt:in','tserver','io:req');*/
-   n.ensureBinding('hmr','io:req','pkprint','prt:in');
-   n.ensureBinding('agr','io:req','pkprint','prt:in');
-   n.ensureBinding('hmr','io:req','homereq','apply:in');
-   n.ensureBinding('abr','io:req','abrreq','apply:in');
+   n.ensureBinding('hmr','io:stream','homereq','apply:in');
+   n.ensureBinding('abr','io:stream','abreq','apply:in');
 
 
    n.addIIP('tserver',{ 'port':3001 });
-   n.addIIP('hmr',{ 'route':new RegExp(r'home') });
-   n.addIIP('abr',{ 'route':new RegExp(r'about') });
-
-   var fp = Funcs.compose(Funcs.tag('ConnectionStream',"{tag} -> {res} \n"),Funcs.prettyPrint);
-   n.network.connectionStream.on(fp);
+   n.addIIP('hmr',{ 'route':new RegExp(r'/home') });
+   n.addIIP('abr',{ 'route':new RegExp(r'/about') });
+   n.schedulePacket('homereq','apply:fn',(r){
+      var req = r, res = req.response;
+      res.statusCode = 200;
+      res.write('Welcome Home!');
+      res.close();
+   });
+   n.schedulePacket('abreq','apply:fn',(r){
+      var req = r, res = req.response;
+      res.statusCode = 200;
+      res.write('Welcome to about!');
+      res.close();
+   });
 
    n.boot().then((_){
+      
+       _.filter('hmr').then((r){
+          print(r.data.sd.get('param'));
+          r.data.port('io:reqs').tap((n) => print("hmr io:reqs got $n"));
+       });
 
+       _.filter('abr').then((r){
+          print(r.data.sd.get('param'));
+          r.data.port('io:reqs').tap((n) => print("abr io:reqs got $n"));
+       });
    });
 }

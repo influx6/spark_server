@@ -1,11 +1,16 @@
 library spark_server;
 
-import 'package:sparkflow/sparkflow.dart';
-import 'package:hub/hub.dart';
 import 'dart:io';
 import 'dart:async';
+import 'package:sparkflow/sparkflow.dart';
+import 'package:spark_fs/fs.dart';
+import 'package:hub/hub.dart';
+import 'requests.dart';
 
 export 'package:sparkflow/sparkflow.dart';
+export 'package:spark_fs/fs.dart';
+export 'requests.dart';
+
 
 class Server{
 
@@ -47,6 +52,7 @@ class Server{
                e.port('io:server').send(s);
                s.listen((r){
                  e.port('io:req').send(r);
+                 e.port('io:server').end();
                });
             }).catchError(e.port('io:error').send);
           });
@@ -85,14 +91,17 @@ class Server{
                 e.sd.get('sockets').add(w);
                 e.port('io:socket').send(w);
               }).catchError(e.port('io:error').send);
+              e.port('io:req').end();
           });
+
 
           e.loopPorts('static:option','conf:meta');
        });
 
 
        r.addMutation('protocols/websockboy',(e){
-          e.meta('desc','a websocket handler component that accepts a websocket instanct and handles operations on it');
+          e.meta('desc','lowe level websocket operation component');
+
           e.createSpace('io');
           e.makeInport('io:socks');
           e.makeInport('io:processor');
@@ -139,16 +148,89 @@ class Server{
           });
 
           e.port('io:reqs').forceCondition((r){
-            if(param.get('route').test(r.data.url)) return true;
+            if(param.get('route').hasMatch(r.uri.path)) return true;
             return false;
           });
 
           e.port('io:reqs').bindPort(e.port('io:stream'));
        });
 
+       r.addMutation('protocols/responseboy',(e){
+          e.meta('desc','filters request dependent on paramters passed');
+  
+          var req = Rio.create(), 
+              param = MapDecorator.create();
 
-       r.addMutation('protocols/virtualfs',(e){
-        
+          e.createSpace('io');
+
+          e.sd.add('req',req);
+          e.makeInport('io:conf');
+          e.makeInport('io:proc');
+          e.makeInport('io:stream');
+
+          e.loopPorts('static:option','io:conf');
+
+          e.port('io:conf').forceCondition(Valids.isMap);
+          e.port('io:proc').forceCondition(Valids.isFunction);
+
+          e.port('io:conf').tap((n){
+            e.sd.update('conf',n.data);
+            param.storage = n.data;
+          });
+
+          e.port('io:stream').pause();
+
+          e.port('io:proc').tap((n){
+            e.sd.update('proc',n.data);
+            e.port('io:stream').resume();
+          });
+
+          e.port('io:streams').tap((n){
+            req.use(n.data);
+            e.sd.get('proc')(param,req);
+          });
+
+
+          e.port('io:reqs').bindPort(e.port('io:stream'));
+       });
+
+       r.addMutation('protocols/viewboy',(e){
+          e.meta('desc','component to handle all fs operations');
+
+          e.enableSubnet();
+          e.sd.add('conf',MapDecorator.create());
+          e.createSpace('view');
+          e.makeInport('view:conf');
+
+          e.network.add('spark.server/protocols/responseboy','rsp');
+
+       });
+
+       r.addMutation('protocols/virtualdir',(e){
+          e.meta('desc','component to handle all fs operations');
+
+          e.sd.add('conf',MapDecorator.create());
+          var conf = e.sd.get('conf');
+          
+          e.createSpace('io');
+          e.makeInport('io:conf');
+          e.makeOutport('io:stream');
+
+
+
+          
+       });
+
+       r.addMutation('protocols/virtualfile',(e){
+          e.meta('desc','component to handle all fs operations');
+
+          e.sd.add('conf',MapDecorator.create());
+          var conf = e.sd.get('conf');
+          
+          e.createSpace('io');
+          e.makeInport('io:conf');
+          e.makeOutport('io:stream');
+          
        });
 
      });
