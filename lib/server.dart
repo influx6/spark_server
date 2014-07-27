@@ -4,12 +4,12 @@ import 'dart:io';
 import 'dart:async';
 import 'package:sparkflow/sparkflow.dart';
 import 'package:spark_fs/fs.dart';
+import 'package:rio/rio.dart';
 import 'package:hub/hub.dart';
-import 'requests.dart';
 
+export 'package:rio/rio.dart';
 export 'package:sparkflow/sparkflow.dart';
 export 'package:spark_fs/fs.dart';
-export 'requests.dart';
 
 
 class Server{
@@ -19,6 +19,8 @@ class Server{
 
   static void register(){
       
+     Fs.register();
+
      Sparkflow.createRegistry('spark.server',(r){
 
        r.addMutation('protocols/http',(e){
@@ -42,6 +44,14 @@ class Server{
           });
 
           e.port('io:conf').forceCondition(Valids.isMap);
+          e.port('io:conf').forceCondition((n){
+            if(n.containsKey('port')){
+              if(n['port'] is int) return true;
+              throw "$n , port must be a number eg 4000,300";
+              return false;
+            }
+          });
+
           e.port('io:conf').tap((n){
             if(e.sd.has('server') && Valids.exist(e.sd.get('server'))) e.sd.get('server').close();
             var cf = Enums.merge(n.data,e.sd.get('dconf'),override:false);
@@ -52,7 +62,7 @@ class Server{
                e.port('io:server').send(s);
                s.listen((r){
                  e.port('io:req').send(r);
-                 e.port('io:server').end();
+                 e.port('io:server').endStream();
                });
             }).catchError(e.port('io:error').send);
           });
@@ -91,7 +101,7 @@ class Server{
                 e.sd.get('sockets').add(w);
                 e.port('io:socket').send(w);
               }).catchError(e.port('io:error').send);
-              e.port('io:req').end();
+              e.port('io:req').endStream();
           });
 
 
@@ -129,7 +139,7 @@ class Server{
           e.meta('desc','filters request dependent on paramters passed');
 
           e.createSpace('io');
-          e.makeInport('io:reqs');
+          e.makeInport('io:req');
           e.makeInport('io:params');
           e.makeOutport('io:stream');
 
@@ -147,21 +157,20 @@ class Server{
             param.storage = n.data;
           });
 
-          e.port('io:reqs').forceCondition((r){
+          e.port('io:req').forceCondition((r){
             if(param.get('route').hasMatch(r.uri.path)) return true;
             return false;
           });
 
-          e.port('io:reqs').bindPort(e.port('io:stream'));
+          e.port('io:req').bindPort(e.port('io:stream'));
        });
 
        r.addMutation('protocols/responseboy',(e){
           e.meta('desc','filters request dependent on paramters passed');
   
           var req = Rio.create(), 
-              param = MapDecorator.create();
-
-          e.createSpace('io');
+              param = MapDecorator.create(),
+              init = (param,req) => e.sd.get('proc')(param,req);
 
           e.sd.add('req',req);
           e.makeInport('io:conf');
@@ -181,57 +190,162 @@ class Server{
           e.port('io:stream').pause();
 
           e.port('io:proc').tap((n){
+            e.port('io:stream').pause();
             e.sd.update('proc',n.data);
+            init(param,req);
             e.port('io:stream').resume();
           });
 
-          e.port('io:streams').tap((n){
+          e.port('io:stream').tap((n){
             req.use(n.data);
-            e.sd.get('proc')(param,req);
           });
 
-
-          e.port('io:reqs').bindPort(e.port('io:stream'));
        });
 
-       r.addMutation('protocols/viewboy',(e){
+       r.addMutation('protocols/_virtualFSRule',(e){
+
+          e.sd.add('conf',MapDecorator.create());
+          var conf = e.sd.get('conf');
+          
+          e.createSpace('io');
+
+          e.createProxyInport('io:conf');
+          e.createProxyInport('io:path');
+
+          e.createProxyInport('io:readkick');
+          e.createProxyInport('io:writekick');
+
+          e.createProxyOutport('io:readStream');
+          e.createProxyInport('io:writeStream');
+       });
+
+       r.addBaseMutation('protocols/_virtualFSRule','protocols/virtualdir',(e){
           e.meta('desc','component to handle all fs operations');
 
-          e.enableSubnet();
+          var conf = e.sd.get('conf');
+
+          e.network.add('spark.fs/protocols/opendir','rd');
+          e.network.add('spark.fs/protocols/writedir','wd');
+
+          e.network.ensureBinding('*','io:conf','rd','io:conf');
+          e.network.ensureBinding('*','io:conf','wd','io:conf');
+
+          e.network.ensureBinding('*','io:path','rd','io:path');
+          e.network.ensureBinding('*','io:path','wd','io:path');
+
+          e.network.ensureBinding('*','io:readkick','rd','io:kick');
+          e.network.ensureBinding('*','io:writekick','wd','io:kick');
+          
+          e.network.ensureBinding('rd','io:stream','*','io:readStream');
+          e.network.ensureBinding('*','io:writeStream','wd','io:stream');
+
+       });
+
+       r.addBaseMutation('protocols/_virtualFSRule','protocols/virtualfile',(e){
+          e.meta('desc','component to handle all fs operations');
+
+          var conf = e.sd.get('conf');
+          
+          e.network.add('spark.fs/protocols/appendfile','ap');
+          e.network.add('spark.fs/protocols/openfile','op');
+
+          e.network.ensureBinding('*','io:conf','op','io:conf');
+          e.network.ensureBinding('*','io:conf','ap','io:conf');
+
+          e.network.ensureBinding('*','io:path','op','io:path');
+          e.network.ensureBinding('*','io:path','ap','io:path');
+
+          e.network.ensureBinding('*','io:readkick','op','io:kick');
+          e.network.ensureBinding('*','io:writekick','ap','io:kick');
+          
+          e.network.ensureBinding('op','io:stream','*','io:readStream');
+          e.network.ensureBinding('*','io:writeStream','ap','io:stream');
+          
+       });
+
+       r.addMutation('protocols/_views',(e){
+          e.meta('desc','component that provides view like facility');
+
           e.sd.add('conf',MapDecorator.create());
-          e.createSpace('view');
-          e.makeInport('view:conf');
+
+          e.createProxyInport('view:conf');
+          e.createProxyInport('view:fn');
+          e.createProxyInport('view:req');
 
           e.network.add('spark.server/protocols/responseboy','rsp');
 
+          e.network.ensureBinding('*','view:req','rsp','io:stream');
+          e.network.ensureBinding('*','view:fn','rsp','io:proc');
+          e.network.ensureBinding('*','view:conf','rsp','io:conf');
+
        });
 
-       r.addMutation('protocols/virtualdir',(e){
-          e.meta('desc','component to handle all fs operations');
-
-          e.sd.add('conf',MapDecorator.create());
-          var conf = e.sd.get('conf');
-          
-          e.createSpace('io');
-          e.makeInport('io:conf');
-          e.makeOutport('io:stream');
-
-
-
-          
+       r.addBaseMutation('protocols/_views','protocols/viewfn',(e){
+          e.meta('desc','component provides a view with a function port to set up behaviour');
        });
 
-       r.addMutation('protocols/virtualfile',(e){
-          e.meta('desc','component to handle all fs operations');
+       r.addBaseMutation('protocols/_views','protocols/pageview',(e){
+          e.meta('desc','component that provides view like facility');
 
-          e.sd.add('conf',MapDecorator.create());
-          var conf = e.sd.get('conf');
-          
-          e.createSpace('io');
-          e.makeInport('io:conf');
-          e.makeOutport('io:stream');
-          
+          e.send('view:fn',(p,req){
+            req.enableDefaults();
+            req.on('get',(r) => req.sendFile(conf.get('view')));
+          });
+
        });
+
+       r.addBaseMutation('protocols/_views','protocols/vfs_file',(e){
+          e.meta('desc','provides a view for a file operation');
+
+          e.network.add('spark.server/protocols/virtualfile','vf');
+
+          e.send('view:fn',(p,req){
+            
+              if(Valids.not(p.has('writable'))) p.update('writable',false);
+              if(Valids.not(p.has('readable'))) p.update('readable',true);
+
+              req.enableDefaults();
+
+              if(Valids.isTrue(p.get('readable'))){
+                req.on('get',(r){
+                  e.network.schedulePacket('vf','io:readkick',true);
+                });
+
+                e.network.tapData('vf','io:readStream',(n){
+                    r.send(n);
+                });
+
+                e.network.tapEnd('vf','io:readStream',(n){
+                   r.end();
+                });
+              }
+
+              if(Valids.isTrue(p.get('writable'))){
+                req.on('post',(r){
+                  r.getBody().then((f){
+                     e.send('io:writeStream',f);
+                  }).then((f){
+                   e.send('vf','io:writekick',true);
+                    req.end()
+                  });
+                });
+              }
+
+              e.network.schedulePacket('vf','io:conf',{
+                 'auto': Funcs.switchUnless(p.get('auto'), false),
+                 'file': p.get('view')
+              });
+
+          });
+
+       });
+
+       r.addBaseMutation('protocols/_views','protocols/vfs_dir',(e){
+          e.meta('desc','provides a view for a file operation');
+          e.network.add('spark.server/protocols/virtualdir','vd');
+
+       });
+
 
      });
   }

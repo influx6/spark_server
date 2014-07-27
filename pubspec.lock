@@ -12,10 +12,8 @@ packages:
     source: hosted
     version: "0.4.3"
   guardedfs:
-    description:
-      path: "../guardedfs"
-      relative: true
-    source: path
+    description: guardedfs
+    source: hosted
     version: "0.1.3"
   hub:
     description:
@@ -26,7 +24,19 @@ packages:
   path:
     description: path
     source: hosted
-    version: "1.2.1"
+    version: "1.2.2"
+  rio:
+    description:
+      path: "../rio"
+      relative: true
+    source: path
+    version: "0.0.1"
+  spark_fs:
+    description:
+      path: "../spark_fs"
+      relative: true
+    source: path
+    version: "0.0.1"
   spark_utils:
     description:
       path: "../spark_utils"
@@ -38,7 +48,7 @@ packages:
       path: "../sparkflow"
       relative: true
     source: path
-    version: "0.5.7"
+    version: "0.5.8"
   streamable:
     description: streamable
     source: hosted

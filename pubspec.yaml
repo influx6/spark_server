@@ -3,14 +3,17 @@ version: 0.0.1
 author: Alexander Ewetumo <trinoxf@gmail.com>
 description: server components for sparkflow
 dependencies:
-  sparkflow: any
   hub: any
   bass: any
+  rio: any
+  sparkflow: any
   spark_utils: any
-  guardedfs: any
+  spark_fs: any
 dependency_overrides:
-  guardedfs:
-     path: ../guardedfs
+  rio:
+     path: ../rio
+  spark_fs:
+     path: ../spark_fs
   sparkflow:
      path: ../sparkflow
   hub:

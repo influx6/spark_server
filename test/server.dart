@@ -21,8 +21,8 @@ void main(){
    n.use('spark.utils/utils/consolepackets','pkprint');
    n.use('spark.utils/utils/consolepackets','pkprint');
 
-   n.ensureBinding('tserver','io:req','hmr','io:reqs');
-   n.ensureBinding('tserver','io:req','abr','io:reqs');
+   n.ensureBinding('tserver','io:req','hmr','io:req');
+   n.ensureBinding('tserver','io:req','abr','io:req');
    n.ensureBinding('tserver','io:req','pkprint','prt:in');
    n.ensureBinding('hmr','io:stream','homereq','apply:in');
    n.ensureBinding('abr','io:stream','abreq','apply:in');
@@ -31,6 +31,7 @@ void main(){
    n.addIIP('tserver',{ 'port':3001 });
    n.addIIP('hmr',{ 'route':new RegExp(r'/home') });
    n.addIIP('abr',{ 'route':new RegExp(r'/about') });
+
    n.schedulePacket('homereq','apply:fn',(r){
       var req = r, res = req.response;
       res.statusCode = 200;
