@@ -28,9 +28,9 @@ void main(){
    n.ensureBinding('abr','io:stream','abreq','apply:in');
 
 
-   n.addIIP('tserver',{ 'port':3001 });
-   n.addIIP('hmr',{ 'route':new RegExp(r'/home') });
-   n.addIIP('abr',{ 'route':new RegExp(r'/about') });
+   n.schedulePacket('tserver',{ 'port':3001 });
+   n.schedulePacket('hmr',{ 'route':new RegExp(r'/home') });
+   n.schedulePacket('abr',{ 'route':new RegExp(r'/about') });
 
    n.schedulePacket('homereq','apply:fn',(r){
       var req = r, res = req.response;
