@@ -15,6 +15,7 @@ void main(){
    
    n.use('spark.server/protocols/http','tserver');
    n.use('spark.server/utils/serverConsole','console');
+   n.use('spark.utils/utils/consolepackets','printer');
 
    n.use('spark.server/protocols/routeboy','doc');
    n.use('spark.server/protocols/pageview','doc_view');
@@ -23,10 +24,10 @@ void main(){
    n.use('spark.server/protocols/viewfn','root_view');
 
    n.use('spark.server/protocols/routeboy','doc_hm');
-   n.use('spark.server/protocols/vfs_file','doc_file');
+   n.use('spark.server/protocols/fileview','doc_file');
 
    n.use('spark.server/protocols/routeboy','dirlist');
-   n.use('spark.server/protocols/vfs_dir','dirlist_dir');
+   n.use('spark.server/protocols/dirview','dirlist_dir');
 
    n.ensureBinding('tserver','io:req','doc','io:reqs');
    n.ensureBinding('tserver','io:req','console','in:req');
@@ -37,7 +38,11 @@ void main(){
    n.ensureBinding('root','io:stream','root_view','view:req');
    n.ensureBinding('doc_hm','io:stream','doc_file','view:req');
    n.ensureBinding('dirlist','io:stream','dirlist_dir','view:req');
-   n.ensureBinding('doc_file','view:errors','console','in:req');
+
+   n.ensureBinding('root_view','view:errors','printer','prt:in');
+   n.ensureBinding('doc_view','view:errors','printer','prt:in');
+   n.ensureBinding('doc_file','view:errors','printer','prt:in');
+   n.ensureBinding('dirlist_dir','view:errors','printer','prt:in');
 
 
    n.schedulePacket('tserver','io:conf',{ 
@@ -61,8 +66,6 @@ void main(){
      'view':'../assets/views/home/index.html'
    });
 
-   n.network.tap('doc_file','view:req',Funcs.tag('view:req'));
-
    n.schedulePacket('doc_hm','io:conf',{ 
      'route': new RegExp(r'/text.md'),
    });
@@ -77,7 +80,8 @@ void main(){
    });
 
    n.schedulePacket('dirlist_dir','view:conf',{ 
-     'view':'../assets' 
+     'view':'../assets',
+     'writable': true
    });
 
    n.boot().then((_){

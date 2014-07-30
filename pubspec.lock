@@ -12,8 +12,10 @@ packages:
     source: hosted
     version: "0.4.3"
   guardedfs:
-    description: guardedfs
-    source: hosted
+    description:
+      path: "../guardedfs"
+      relative: true
+    source: path
     version: "0.1.3"
   hub:
     description:
