@@ -24,6 +24,41 @@ class Server{
 
      Sparkflow.createRegistry('spark.server',(r){
 
+       r.addMutation('protocols/iojson',(v){
+          v.meta('desc','generates a json response');
+
+          var json = MapDecorator.useMap({
+            'data':[]
+          });
+
+          v.makeInport('io:template');
+          v.makeInport('io:data');
+          v.makeOutport('io:json');
+
+          v.port('io:template').forceCondition(Valids.isMap);
+
+          v.port('io:data').pause();
+
+          v.tap('io:template',(n){
+             n.data.forEach((k,v){
+                if(Valids.match(k,'data')) return null;
+                return json.update(k,v);
+             });
+            v.port('io:data').resume();
+          });
+
+          v.tapData('io:data',(n){
+            json.get('data').add(n.data);
+          });
+
+          v.tapEnd('io:data',(n){
+            v.port('io:json').send(JSON.encode(json.core));
+            v.port('io:json').endStream();
+            json.get('data').clear();
+          });
+
+       });
+
        r.addMutation('utils/serverConsole',(e){
          e.meta('desc','prints details out into the console');
 
@@ -182,6 +217,7 @@ class Server{
           e.makeInport('io:req');
           e.makeInport('io:conf');
           e.makeOutport('io:stream');
+          e.makeOutport('io:routekey');
 
           var param = MapDecorator.create();
           e.port('io:conf').forceCondition(Valids.isMap);
@@ -193,6 +229,7 @@ class Server{
           e.port('io:conf').tap((n){
             e.sd.update('param',n.data);
             param.storage = n.data;
+            e.send('io:routekey',param.get('route'));
           });
 
           e.port('io:req').forceCondition((r){
@@ -351,14 +388,19 @@ class Server{
           e.network.whenAlive.then((_){
             e.port('io:readkick').resume();
             e.port('io:writekick').resume();
+            e.port('io:conf').resume();
           });
 
        });
 
-       r.addMutation('protocols/_baseviews',(e){
+       r.addMutation('protocols/_baseview',(e){
           e.meta('desc','component that provides view like facility');
 
           e.sd.add('conf',MapDecorator.create());
+
+          var req = Rio.create();
+          req.enableDefaults();
+          e.sd.update('req',req);
 
           e.createProxyInport('view:fn');
           e.createProxyInport('view:conf');
@@ -372,9 +414,37 @@ class Server{
           e.tapData('view:conf',(n){
             e.sd.get('conf').storage = n.data;
           });
+
+          e.tapData('view:req',(n){
+            req.use(n.data);
+          });
        });
 
-       r.addBaseMutation('protocols/_baseviews','protocols/_views',(e){
+       r.addBaseMutation('protocols/_baseview','protocols/_ioBaseView',(e){
+
+            var conf = e.sd.get('conf');
+            e.sd.update('ioconf',MapDecorator.create());
+
+            e.tapData('view:conf',(n){ var conf = e.sd.get('conf');
+                if(Valids.not(conf.has('writable'))) conf.update('writable',false);
+                if(Valids.not(conf.has('readable'))) conf.update('readable',true);
+            });
+
+            e.tapData('view:conf',(n){
+               var fs = {
+                  'auto': (conf.has('auto') ? conf.get('auto') : false),
+                  'file': conf.get('view')
+              };
+              e.sd.get('ioconf').storage = fs;
+            });
+
+            e.tapData('view:fn',(n){
+              n.data(e.sd.get('req'));
+            });
+
+       });
+
+       r.addBaseMutation('protocols/_baseview','protocols/_responseboy_viewbase',(e){
           e.meta('desc','component that provides view like facility');
 
           e.network.add('spark.server/protocols/responseboy','rsp');
@@ -384,11 +454,11 @@ class Server{
           e.network.ensureBinding('*','view:conf','rsp','io:conf');
        });
 
-       r.addBaseMutation('protocols/_views','protocols/viewfn',(e){
+       r.addBaseMutation('protocols/_responseboy_viewbase','protocols/viewfn',(e){
           e.meta('desc','provides a view with a function port to set up behaviour');
        });
 
-       r.addBaseMutation('protocols/_views','protocols/pageview',(e){
+       r.addBaseMutation('protocols/_responseboy_viewbase','protocols/pageview',(e){
           e.meta('desc','provides view rendering a file eg index.html');
 
           e.port('view:conf').forceCondition((n){
@@ -451,7 +521,7 @@ class Server{
 
        });
 
-       r.addBaseMutation('protocols/_baseviews','protocols/_resView',(e){
+       r.addBaseMutation('protocols/_ioBaseView','protocols/_ioViewStream',(e){
           e.meta('desc','provides a view for a file operation');
 
           e.createProxyOutport('view:reqStream');
@@ -464,17 +534,7 @@ class Server{
           e.network.ensureBinding('*','view:writedata','rw','io:stream');
           e.network.ensureBinding('rd','io:stream','*','view:readdata');
 
-          var req = Rio.create();
-          req.enableDefaults();
-
-          e.sd.update('req',req);
-          e.sd.update('ioconf',MapDecorator.create());
-
-          e.tapData('view:conf',(n){
-              var conf = e.sd.get('conf');
-              if(Valids.not(conf.has('writable'))) conf.update('writable',false);
-              if(Valids.not(conf.has('readable'))) conf.update('readable',true);
-          });
+          var req = e.sd.get('req');
 
           req.on('head',(f){
               e.send('view:reqStream',req);
@@ -502,208 +562,203 @@ class Server{
              }
           });
 
-
-          e.tapData('view:req',(n){
-            req.use(n.data);
-          });
        });
 
-       r.addBaseMutation('protocols/_resView','protocols/_fsview',(e){
+       r.addBaseMutation('protocols/_ioViewStream','protocols/ioview',(e){
+
             var conf = e.sd.get('conf');
 
-            e.tapData('view:conf',(n){
-               var fs = {
-                  'auto': (conf.has('auto') ? conf.get('auto') : false),
-                  'file': conf.get('view')
-              };
-              e.sd.get('ioconf').storage = fs;
-            });
+            e.network.add('spark.utils/utils/utf8.decode','ud');
+            e.network.add('spark.utils/utils/utf8.decode','ud2');
+
+            e.createProxyOutport('io:outstream');
+            e.createProxyInport('io:instream');
+
+            e.network.ensureBinding('*','view:readdata','ud2','io:in');
+            e.network.ensureBinding('ud2','io:out','*','io:outstream');
+
+            e.network.ensureBinding('*','io:instream','ud','io:in');
+            e.network.ensureBinding('ud','io:out','*','view:writedata');
 
        });
 
-       r.addBaseMutation('protocols/_fsview','protocols/fileview',(e){
+       r.addBaseMutation('protocols/_iobaseView','protocols/fileview',(e){
 
             var conf = e.sd.get('conf');
 
             e.network.add('spark.server/protocols/virtualfile','vd');
-            e.network.add('spark.utils/utils/utf8.decode','ud');
-            e.network.add('spark.utils/utils/utf8.decode','ud2');
+            e.network.add('spark.server/protocols/ioview','vio');
+            e.network.add('spark.server/protocols/iojson','jsn');
+            e.network.add('spark.utils/utils/utf8.encode','u8');
+
+            e.network.ensureBinding('*','view:req','vio','view:req');
+            e.network.ensureBinding('*','view:conf','vio','view:conf');
 
             e.network.ensureBinding('vd','io:errors','*','view:errors');
+            e.network.ensureBinding('vd','io:readStream','jsn','io:data');
+            e.network.ensureBinding('jsn','io:json','u8','io:in');
+            e.network.ensureBinding('u8','io:out','vio','io:instream');
+            e.network.ensureBinding('vio','io:outstream','vd','io:writeStream');
 
-            e.network.ensureBinding('*','view:readdata','ud2','io:in');
-            e.network.ensureBinding('ud2','io:out','vd','io:writeStream');
+            e.network.filter('jsn').then((_){
+              _.port('io:data').mixedTransformer.on((n){
+                  if(!Valids.match(n.event,"data")) return n;
+                  n.data = UTF8.decode(n.data is List ? n.data : [n.data]);
+                  return n;
+              });
+            });
 
-            e.network.ensureBinding('vd','io:readStream','ud','io:in');
-            e.network.ensureBinding('ud','io:out','*','view:writedata');
+            e.network.schedulePacket('jsn','io:template',{
+              'component':"spark.server/protocols/fileview",
+              'format':'file_json',
+              'version':'0.1',
+              'spec':null,
+              'description':'provides a nice json response for file stream'
+            });
 
-            var req = e.sd.get('req');
+            e.send('view:fn',(req){
+
+                req.on('get',(r){
+                    if(conf.get('readable'))
+                      e.network.send('vd','io:readkick',true);
+                });
+
+                req.on('post',(r){
+                    if(conf.get('writable'))
+                      e.network.send('vd','io:writekick',true);
+                });
+
+                req.on('put',(r){
+                    if(conf.get('writable'))
+                      e.network.send('vd','io:writekick',true);
+                });
+
+            });
               
-            req.on('get',(r){
-                if(conf.get('readable'))
-                  e.network.send('vd','io:readkick',true);
-            });
-
-            req.on('post',(r){
-                if(conf.get('writable'))
-                  e.network.send('vd','io:writekick',true);
-            });
-
-            req.on('put',(r){
-                if(conf.get('writable'))
-                  e.network.send('vd','io:writekick',true);
-            });
-
             e.tapData('view:conf',(n){
                 e.network.schedulePacket('vd','io:conf',e.sd.get('ioconf').core);
             });
 
        });
 
-       r.addBaseMutation('protocols/_fsview','protocols/dirview',(e){
+
+       r.addBaseMutation('protocols/_ioBaseView','protocols/dirview',(e){
 
             var conf = e.sd.get('conf');
 
             e.network.add('spark.server/protocols/virtualdir','vd');
+            e.network.add('spark.server/protocols/ioview','vio');
+            e.network.add('spark.server/protocols/iojson','jsn');
+            e.network.add('spark.utils/utils/utf8.encode','u8');
 
-            e.network.ensureBinding('vd','io:errors','*','view:errors');
-
-            e.network.ensureBinding('vd','io:readStream','*','view:writedata');
-            e.network.ensureBinding('*','view:readdata','vd','io:writeStream');
-
-            e.tap('view:readdata',(n){
-                print('sending writekick');
-                e.network.send('vd','io:writekick',true);
+            e.network.filter('jsn').then((_){
+              _.port('io:data').mixedTransformer.on((n){
+                  if(!Valids.match(n.event,"data")) return n;
+                  var data = n.data, map = {
+                    'path': data.path,
+                    'basepath': Fs.bitShiftPath(data.path)
+                  };
+                  if(data is Directory) map['type'] = 'directory';
+                  if(data is File) map['type'] = 'file';
+                  n.data = map;
+                  return n;
+              });
             });
 
-            e.tap('view:writedata',(n){
-                print('sending writekick');
-                e.network.send('vd','io:readkick',true);
+            e.network.ensureBinding('*','view:req','vio','view:req');
+            e.network.ensureBinding('*','view:conf','vio','view:conf');
+
+            e.network.ensureBinding('vd','io:errors','*','view:errors');
+            e.network.ensureBinding('vd','io:readStream','jsn','io:data');
+            e.network.ensureBinding('jsn','io:json','u8','io:in');
+            e.network.ensureBinding('u8','io:out','vio','io:instream');
+            e.network.ensureBinding('vio','io:outstream','vd','io:writeStream');
+
+            e.network.schedulePacket('jsn','io:template',{
+              'component':"spark.server/protocols/dirview",
+              'format':'dir_json',
+              'version':'0.1',
+              'spec':null,
+              'description':'provides a nice json response for dir lists'
             });
 
             e.tapData('view:conf',(n){
-                e.network.send('vd','io:conf',e.sd.get('ioconf'));
+                e.network.schedulePacket('vd','io:conf',e.sd.get('ioconf').core);
             });
-       });
 
-       r.addBaseMutation('protocols/_views','protocols/vfs_file',(e){
-          e.meta('desc','provides a view for a file operation');
+            e.send('view:fn',(req){
 
-          e.network.add('spark.server/protocols/virtualfile','vd');
-          e.network.add('spark.server/protocols/response_writer','rw');
-          e.network.add('spark.server/protocols/response_reader','rd');
-
-          e.network.ensureBinding('vd','io:errors','*','view:errors');
-
-
-          e.send('view:fn',(p,req){
-            
-              if(Valids.not(p.has('writable'))) p.update('writable',false);
-              if(Valids.not(p.has('readable'))) p.update('readable',true);
-
-              req.enableDefaults();
-
-              if(Valids.isTrue(p.get('readable'))){
-  
-                  var bits = [];
-                  req.on('get',(f){
+                req.on('get',(r){
+                    if(conf.get('readable'))
                       e.network.send('vd','io:readkick',true);
-                      e.network.send('rw','io:req',req);
-                  });
+                });
 
-                  e.network.tapData('vd','io:readStream',(n){
-                     e.network.send('rw','io:stream',UTF8.decode(n.data));
-                  });
+                req.on('post',(r){
+                    if(conf.get('writable'))
+                      e.network.send('vd','io:writekick',true);
+                });
 
-                  e.network.tapEnd('vd','io:readStream',(n){
-                     e.network.endStream('rw','io:stream');
-                  });
-              }
+                req.on('put',(r){
+                    if(conf.get('writable'))
+                      e.network.send('vd','io:writekick',true);
+                });
 
-              if(Valids.isTrue(p.get('writable'))){
-
-                e.network.send('vd','io:writekick',true);
-
-                  req.on('post',(r){
-                    r.getBody().then((f){
-                       var content = UTF8.decode(f);
-                       e.network.send('vd','io:writeStream',content);
-                    }).then((f){
-                       req.end();
-                    });
-                  });
-              }
-
-          });
-
-          e.tap('view:conf',(n){
-              var conf = n.data;
-              e.network.schedulePacket('vd','io:conf',{
-                  'auto': (conf.containsKey('auto') ? conf['auto'] : false),
-                  'file': conf['view']
-              });
-          });
+            });
 
        });
 
+       r.addBaseMutation('protocols/_ioBaseView','protocols/vfs',(e){
 
-       r.addBaseMutation('protocols/_views','protocols/vfs_dir',(e){
-          e.meta('desc','provides a view for a file operation');
+            var conf = e.sd.get('conf');
+            var req = e.sd.get('req');
 
-          e.network.add('spark.server/protocols/virtualdir','vd');
-          e.network.add('spark.server/protocols/response_writer','rw');
-          e.network.add('spark.server/protocols/response_reader','rd');
+            req.enableDefaults();
 
-          e.send('view:fn',(p,req){
-            
-              if(Valids.not(p.has('writable'))) p.update('writable',false);
-              if(Valids.not(p.has('readable'))) p.update('readable',true);
+            e.network.add('spark.server/protocols/dirview','dv');
+            e.network.add('spark.server/protocols/fileview','fv');
 
-              req.enableDefaults();
+            e.network.add('spark.fs/protocols/isFile','isf');
+            e.network.add('spark.fs/protocols/isDirectory','isd');
+            e.network.add('spark.fs/protocols/pathModShift','psm');
 
-              if(Valids.isTrue(p.get('readable'))){
-  
-                  var bits = [];
-                  req.on('get',(f){
-                      e.network.send('rw','io:req',req);
-                  });
+            e.network.ensureBinding('isf','io:no','*','view:errors');
+            e.network.ensureBinding('isd','io:no','*','view:errors');
 
-                  e.network.tapData('vd','io:readStream',(n){
-                     bits.add(n.data.path);
-                  });
+            e.tapData('view:conf',(n){
+              conf.update('writable',false);
+              e.network.schedulePacket('psm','io:root',conf.get('view'));
+            });
 
-                  e.network.tapEnd('vd','io:readStream',(n){
-                     /*e.network.send('rw','io:stream',bit);*/
-                     e.network.endStream('rw','io:stream',bit);
-                  });
-              }
+            e.network.tap('isf','io:yes',(n){
+                var file = new Map.from(conf.core); file['view'] =  n.data;
+                e.network.send('fv','view:conf',file).then((_){
+                  e.network.schedulePacket('fv','view:req',req.req);
+                });
+            });
 
-              if(Valids.isTrue(p.get('writable'))){
+            e.network.tap('isd','io:yes',(n){
+                var dir = new Map.from(conf.core); dir['view'] =  n.data;
+                e.network.send('dv','view:conf',dir).then((_){
+                  e.network.schedulePacket('dv','view:req',req.req);
+                });
+            });
 
-                e.network.send('vd','io:writekick',true);
+            e.network.tap('psm','io:mods',(n){
+               e.network.schedulePacket('isf','io:path',n);
+               e.network.schedulePacket('isd','io:path',n);
+            });
 
-                  req.on('post',(r){
-                    r.getBody().then((f){
-                       var content = UTF8.decode(f);
-                       e.network.send('vd','io:writeStream',content);
-                    }).then((f){
-                       req.end();
-                    });
-                  });
-              }
+            e.send('view:fn',(req){
+                req.on('get',(b){
+                   e.network.schedulePacket('psm','io:paths',req.url);
+                });
+            });
 
-          });
-
-          e.tap('view:conf',(n){
-              var conf = n.data;
-              e.network.schedulePacket('vd','io:conf',{
-                  'auto': (conf.containsKey('auto') ? conf['auto'] : false),
-                  'file': conf['view']
-              });
-          });
+            e.network.send('psm','io:conf',{ 'lock':true });
 
        });
 
      });
+
   }
 }
