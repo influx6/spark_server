@@ -11,7 +11,7 @@ void main(){
    Server.register();
    SparkUtils.register();
 
-   var n =  Sparkflow.create('basic-server','a basic test fbp server');
+   var n =  Network.create('basic-server');
    n.use('spark.server/protocols/http','tserver');
    n.use('spark.server/protocols/websocks','hm_ws');
    n.use('spark.server/protocols/routeboy','hmr');

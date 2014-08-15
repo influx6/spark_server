@@ -153,24 +153,20 @@ class Server{
           e.createSpace('conf');
           e.createSpace('io');
 
-          e.makeInport('conf:meta',meta:{});
+          e.makeInport('io:fn',meta:{ 'desc':'functions used to modify behaviour of socket' });
           e.makeInport('io:req',meta:{});
           e.makeInport('io:error',meta:{});
-          e.makeOutport('io:socket',meta:{});
            
           e.sd.add('sockets',[]);
-          e.sd.add('conf',{
-            'max':10000000000000,
-          });
 
           e.port('io:req').forceCondition(Server.isHttpRequest);
-          e.port('io:req').forceCondition((n){
-             if(e.sd.get('sockets').length >= e.sd.get('conf')['max']) return false;
-             return true;
-          });
+          e.port('io:fn').forceCondition(Valids.isFunction);
 
-          e.port('conf:meta').tap((n){
-             if(e.sd.get('sockets').length >= e.sd.get('conf')['max']);
+          e.port('io:req').pause();
+
+          e.port('io:fn').tapData((n){
+            e.sd.get('fn',n.data);
+            e.port('io:req').resume();
           });
 
           e.port('io:req').tap((n){
@@ -179,33 +175,6 @@ class Server{
                 e.port('io:socket').send(w);
               }).catchError(e.port('io:error').send);
               e.port('io:req').endStream();
-          });
-
-
-       });
-
-
-       r.addMutation('protocols/websockboy',(e){
-          e.meta('desc','lowe level websocket operation component');
-
-          e.createSpace('io');
-          e.makeInport('io:socks');
-          e.makeInport('io:processor');
-          e.makeOutport('io:stream');
-
-          e.sd.add('_proc',(r){ e.sd.get('processor')(r,e); });
-          e.sd.add('processor',(e,m){ return null; });
-
-          e.port('io:processor').forceCondition(Valids.isFunction);
-          e.port('io:socks').tap((n){
-            e.sd.update('processor',n.data);
-          });
-
-          e.port('io:socks').forceCondition(Server.isWebSocket);
-          e.port('io:socks').forceCondition((m) => Valids.notExist(e.sd.has('socket')));
-          e.port('io:socks').tap((n){
-            e.sd.update('socket',n.data);
-            n.data.listen(e.sd.get('_proc'));
           });
 
        });
@@ -217,7 +186,7 @@ class Server{
           e.makeInport('io:req');
           e.makeInport('io:conf');
           e.makeOutport('io:stream');
-          e.makeOutport('io:routekey');
+          e.makeOutport('io:reject');
 
           var param = MapDecorator.create();
           e.port('io:conf').forceCondition(Valids.isMap);
@@ -229,44 +198,15 @@ class Server{
           e.port('io:conf').tap((n){
             e.sd.update('param',n.data);
             param.storage = n.data;
-            e.send('io:routekey',param.get('route'));
           });
 
           e.port('io:req').forceCondition((r){
             if(param.get('route').hasMatch(r.uri.path)) return true;
+            e.port('io:reject').send(r);
             return false;
           });
 
           e.port('io:req').bindPort(e.port('io:stream'));
-       });
-
-       r.addMutation('protocol/antiroutes',(e){
-  
-          var list = [];
-          e.sd.update('list',list);
-
-          e.createInport('io:routes');
-          e.createInport('io:req');
-          e.createOutport('io:stream');
-
-          e.port('io:routes').forceCondition(Valids.isRegExp);
-          e.port('io:req').forceCondition(Server.isHttpRequest);
-
-          e.tap('io:routes',(n){
-             if(!list.contains(n.data))
-               list.add(n.data);
-          });
-
-          e.tap('io:req',(n){
-            Enums.eachAsync(list,(e,i,o,fn){
-                if(e.hasMatch(n.data)) return fn(true);
-                return fn(null);
-            },(_,err){
-              if(Valids.exist(err)) return null;
-               e.port('io:stream').send(n.data);
-            });
-          });
-
        });
 
        r.addMutation('protocols/responseboy',(e){
@@ -337,8 +277,8 @@ class Server{
 
           var conf = e.sd.get('conf');
 
-          e.network.add('spark.fs/protocols/opendir','rd');
-          e.network.add('spark.fs/protocols/writedir','wd');
+          e.network.use('spark.fs/protocols/opendir','rd');
+          e.network.use('spark.fs/protocols/writedir','wd');
 
           e.network.ensureBinding('*','io:conf','rd','io:conf');
           e.network.ensureBinding('*','io:conf','wd','io:conf');
@@ -367,8 +307,8 @@ class Server{
 
           var conf = e.sd.get('conf');
           
-          e.network.add('spark.fs/protocols/appendfile','ap');
-          e.network.add('spark.fs/protocols/openfile','op');
+          e.network.use('spark.fs/protocols/appendfile','ap');
+          e.network.use('spark.fs/protocols/openfile','op');
 
           e.network.ensureBinding('*','io:conf','op','io:conf');
           e.network.ensureBinding('*','io:conf','ap','io:conf');
@@ -447,7 +387,7 @@ class Server{
        r.addBaseMutation('protocols/_baseview','protocols/_responseboy_viewbase',(e){
           e.meta('desc','component that provides view like facility');
 
-          e.network.add('spark.server/protocols/responseboy','rsp');
+          e.network.use('spark.server/protocols/responseboy','rsp');
 
           e.network.ensureBinding('*','view:req','rsp','io:stream');
           e.network.ensureBinding('*','view:fn','rsp','io:proc');
@@ -528,8 +468,8 @@ class Server{
           e.createProxyOutport('view:writedata');
           e.createProxyInport('view:readdata');
 
-          e.network.add('spark.server/protocols/response_writer','rw');
-          e.network.add('spark.server/protocols/response_reader','rd');
+          e.network.use('spark.server/protocols/response_writer','rw');
+          e.network.use('spark.server/protocols/response_reader','rd');
 
           e.network.ensureBinding('*','view:writedata','rw','io:stream');
           e.network.ensureBinding('rd','io:stream','*','view:readdata');
@@ -568,8 +508,8 @@ class Server{
 
             var conf = e.sd.get('conf');
 
-            e.network.add('spark.utils/utils/utf8.decode','ud');
-            e.network.add('spark.utils/utils/utf8.decode','ud2');
+            e.network.use('spark.utils/utils/utf8.decode','ud');
+            e.network.use('spark.utils/utils/utf8.decode','ud2');
 
             e.createProxyOutport('io:outstream');
             e.createProxyInport('io:instream');
@@ -586,10 +526,10 @@ class Server{
 
             var conf = e.sd.get('conf');
 
-            e.network.add('spark.server/protocols/virtualfile','vd');
-            e.network.add('spark.server/protocols/ioview','vio');
-            e.network.add('spark.server/protocols/iojson','jsn');
-            e.network.add('spark.utils/utils/utf8.encode','u8');
+            e.network.use('spark.server/protocols/virtualfile','vd');
+            e.network.use('spark.server/protocols/ioview','vio');
+            e.network.use('spark.server/protocols/iojson','jsn');
+            e.network.use('spark.utils/utils/utf8.encode','u8');
 
             e.network.ensureBinding('*','view:req','vio','view:req');
             e.network.ensureBinding('*','view:conf','vio','view:conf');
@@ -617,6 +557,10 @@ class Server{
             });
 
             e.send('view:fn',(req){
+
+                e.network.tap('vd','io:errors',(n){
+                    req.end();
+                });
 
                 req.on('get',(r){
                     if(conf.get('readable'))
@@ -646,10 +590,10 @@ class Server{
 
             var conf = e.sd.get('conf');
 
-            e.network.add('spark.server/protocols/virtualdir','vd');
-            e.network.add('spark.server/protocols/ioview','vio');
-            e.network.add('spark.server/protocols/iojson','jsn');
-            e.network.add('spark.utils/utils/utf8.encode','u8');
+            e.network.use('spark.server/protocols/virtualdir','vd');
+            e.network.use('spark.server/protocols/ioview','vio');
+            e.network.use('spark.server/protocols/iojson','jsn');
+            e.network.use('spark.utils/utils/utf8.encode','u8');
 
             e.network.filter('jsn').then((_){
               _.port('io:data').mixedTransformer.on((n){
@@ -686,7 +630,12 @@ class Server{
                 e.network.schedulePacket('vd','io:conf',e.sd.get('ioconf').core);
             });
 
+
             e.send('view:fn',(req){
+
+                e.network.tap('vd','io:errors',(n){
+                    req.end();
+                });
 
                 req.on('get',(r){
                     if(conf.get('readable'))
@@ -714,15 +663,23 @@ class Server{
 
             req.enableDefaults();
 
-            e.network.add('spark.server/protocols/dirview','dv');
-            e.network.add('spark.server/protocols/fileview','fv');
+            e.network.use('spark.server/protocols/dirview','dv');
+            e.network.use('spark.server/protocols/fileview','fv');
 
-            e.network.add('spark.fs/protocols/isFile','isf');
-            e.network.add('spark.fs/protocols/isDirectory','isd');
-            e.network.add('spark.fs/protocols/pathModShift','psm');
+            e.network.use('spark.fs/protocols/isFile','isf');
+            e.network.use('spark.fs/protocols/isDirectory','isd');
+            e.network.use('spark.fs/protocols/pathModShift','psm');
 
             e.network.ensureBinding('isf','io:no','*','view:errors');
             e.network.ensureBinding('isd','io:no','*','view:errors');
+
+            e.network.tap('isd','io:nof',(n){
+               if(!req.requestSent) req.end();
+            });
+
+            e.network.tap('isf','io:nof',(n){
+               if(!req.requestSent) req.end();
+            });
 
             e.tapData('view:conf',(n){
               conf.update('writable',false);

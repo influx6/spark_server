@@ -2,6 +2,7 @@ name: spark_server
 version: 0.0.1
 author: Alexander Ewetumo <trinoxf@gmail.com>
 description: server components for sparkflow
+homepage: http://github.com/influx6/spark_server
 dependencies:
   hub: any
   bass: any
@@ -10,18 +11,3 @@ dependencies:
   spark_utils: any
   spark_fs: any
   guardedfs: any
-dependency_overrides:
-  guardedfs:
-    path: ../guardedfs
-  rio:
-     path: ../rio
-  spark_fs:
-     path: ../spark_fs
-  sparkflow:
-     path: ../sparkflow
-  hub:
-     path: ../hub
-  bass:
-     path: ../bass
-  spark_utils:
-     path: ../spark_utils
